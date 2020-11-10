@@ -19,7 +19,8 @@ int main(int argc, char **argv) {
   char *new_argv[argc - 1];
   new_argv[argc - 2] = NULL;
   for (int i=2; i < argc; i++) {
-    new_argv[i - 2] = argv[i];
+    new_argv[i - 2] = strdup(argv[i]);
+    memset(argv[i], 0, strlen(argv[i]));
   }
 
   pid_t direct_child = vfork();
@@ -27,13 +28,18 @@ int main(int argc, char **argv) {
     perror("failed to vfork");
     return 1;
   } else if (direct_child == 0) {
-    int r = execvp(argv[2], new_argv);
+    int r = execvp(new_argv[0], new_argv);
     int err = errno;
     if (r == -1) {
       perror("failed to execvp");
     }
     _exit(1);
     return 1;
+  }
+
+  for (int i = 0; i < (argc - 1); i++) {
+    free(new_argv[i]);
+    new_argv[i] = NULL;
   }
 
   int child_stat;
