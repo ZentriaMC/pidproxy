@@ -14,6 +14,8 @@
 #include <time.h>
 
 #define MAX_EVENTS 4
+#define PIDFILE_INITIAL_WAIT_TIME 2
+#define PIDFILE_MAX_WAIT_TIME 10
 
 inline int w_pidfd_open(pid_t pid, unsigned int flags) {
   return syscall(SYS_pidfd_open, pid, flags);
@@ -86,9 +88,12 @@ int main(int argc, char **argv) {
 
   pidfile_name = argv[1];
 
+  int evts, epollfd, sigfd, timerfd, target_pid_fd;
+  pid_t target_pid = -1;
+  struct signalfd_siginfo last_siginfo;
+
   // Set up epoll
-  int epollfd = epoll_create1(EPOLL_CLOEXEC);
-  if (epollfd < 0) {
+  if ((epollfd = epoll_create1(EPOLL_CLOEXEC)) == -1) {
     perror("epoll_create1");
     return 1;
   }
@@ -103,19 +108,15 @@ int main(int argc, char **argv) {
   sigaddset(&mask, SIGINT);
   sigaddset(&mask, SIGQUIT);
   sigaddset(&mask, SIGTERM);
+  sigaddset(&mask, SIGUSR1);
+  sigaddset(&mask, SIGUSR2);
 
   if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
     perror("sigprocmask");
     return 1;
   }
 
-  // Detach from controlling tty first
-  if (ioctl(STDIN_FILENO, TIOCNOTTY) == -1) {
-    perror("ioctl(TIOCNOTTY)");
-  }
-
-  int sigfd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
-  if (sigfd == -1) {
+  if ((sigfd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC)) == -1) {
     perror("signalfd");
     return 1;
   }
@@ -126,14 +127,13 @@ int main(int argc, char **argv) {
   }
 
   // Set up timer and make it tick after every 1 second
-  int timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
-  if (timerfd == -1) {
+  if ((timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK)) == -1) {
     perror("timerfd_create");
     return 1;
   }
 
   struct itimerspec timer_spec = { 0 };
-  timer_spec.it_value.tv_sec = 3;
+  timer_spec.it_value.tv_sec = PIDFILE_INITIAL_WAIT_TIME;
   timer_spec.it_interval.tv_sec = 1;
 
   if (timerfd_settime(timerfd, 0, &timer_spec, NULL) == -1) {
@@ -147,20 +147,23 @@ int main(int argc, char **argv) {
   }
 
   // Spawn daemonizing program
-  sigset_t all_signals;
-  sigfillset(&all_signals);
-  pid_t direct_child = vfork();
-  if (direct_child == -1) {
-    perror("vfork");
-    return 1;
-  } else if (direct_child == 0) {
-    // Unblock all signals for child
-    sigprocmask(SIG_UNBLOCK, &all_signals, NULL);
+  {
+    sigset_t all_signals;
+    sigfillset(&all_signals);
 
-    if (execvp(argv[2], &argv[2]) == -1) {
-      perror("execvp");
+    pid_t direct_child;
+    if ((direct_child = fork()) == -1) {
+      perror("fork");
+      return 1;
+    } else if (direct_child == 0) {
+      // Unblock all signals for child
+      sigprocmask(SIG_UNBLOCK, &all_signals, NULL);
+
+      if (execvp(argv[2], &argv[2]) == -1) {
+        perror("execvp");
+      }
+      _exit(1);
     }
-    _exit(1);
   }
 
   // Clear argv
@@ -169,11 +172,7 @@ int main(int argc, char **argv) {
   }
 
   // Start polling
-  pid_t target_pid = -1;
-  int target_pid_fd = -1;
-  struct signalfd_siginfo last_siginfo;
   while (1) {
-    int evts;
     if ((evts = epoll_wait(epollfd, events, MAX_EVENTS, -1)) == -1) {
       if (errno == EAGAIN) {
         continue;
@@ -192,8 +191,8 @@ int main(int argc, char **argv) {
 
         timer_cycles++;
 
-        if (timer_cycles > 10) {
-          fprintf(stderr, "target process did not appear after waiting for 10 seconds\n");
+        if (timer_cycles > PIDFILE_MAX_WAIT_TIME) {
+          fprintf(stderr, "target process did not appear after waiting for %d seconds\n", PIDFILE_MAX_WAIT_TIME);
           return 1;
         } else if (target_pid == -1) {
           if ((r = read_pidfile(pidfile_name)) != -1) {
@@ -250,16 +249,8 @@ int main(int argc, char **argv) {
         }
 
         if (target_pid != -1) {
-          // TODO: use pidfd_send_signal!
-
           int method_used = 0;
-          if (target_pid_fd == -1 && kill(target_pid, sig) == -1) {
-            if (errno == ESRCH) {
-              fprintf(stderr, "process has died, quitting\n");
-              return 0;
-            }
-            perror("kill");
-          } else if (target_pid_fd != -1) {
+          if (target_pid_fd != -1) {
             method_used = 1;
             if (w_pidfd_send_signal(target_pid_fd, sig, NULL, 0) == -1) {
               if (errno == ESRCH) {
@@ -268,30 +259,18 @@ int main(int argc, char **argv) {
               }
               perror("pidfd_send_signal");
             }
+          } else if (target_pid_fd == -1 && kill(target_pid, sig) == -1) {
+            if (errno == ESRCH) {
+              fprintf(stderr, "process has died, quitting\n");
+              return 0;
+            }
+            perror("kill");
           }
           fprintf(stderr, "signal proxied to %d using %s\n", target_pid, method_used ? "pidfd_send_signal" : "kill");
         } else {
           fprintf(stderr, "child does not seem to be available yet\n");
         }
-      } else if (fd == direct_child) {
-        // *** Daemonizing child process
-        fprintf(stderr, "daemon fork exited\n");
-        if (remove_pollable_fd(epollfd, fd) == -1) {
-          perror("epoll_ctl (failed to remove first spawned child)");
-        };
-
-        close(direct_child);
-        direct_child = -1;
       } else if (target_pid != -1 && fd == target_pid_fd) {
-        fprintf(stderr, "target_pid=%d, fd=%d, target_pid_fd=%d\n", target_pid, fd, target_pid_fd);
-
-        /*
-        uint64_t _dummy;
-        if (read(target_pid_fd, &_dummy, sizeof(uint64_t)) == -1) {
-          perror("read");
-        }
-        */
-
         // *** Target process
         fprintf(stderr, "monitored pid %d exited, quitting\n", target_pid);
         if (remove_pollable_fd(epollfd, fd) == -1) {
