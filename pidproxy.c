@@ -17,6 +17,10 @@
 #define PIDFILE_INITIAL_WAIT_TIME 2
 #define PIDFILE_MAX_WAIT_TIME 10
 
+#if !defined(SYS_pidfd_open) && defined(__x86_64__) // just to be sure.
+#  define SYS_pidfd_open 434
+#endif
+
 inline int w_pidfd_open(pid_t pid, unsigned int flags) {
   return syscall(SYS_pidfd_open, pid, flags);
 }
