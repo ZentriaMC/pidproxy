@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <getopt.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/signalfd.h>
@@ -19,6 +20,12 @@
 
 #if !defined(SYS_pidfd_open) && defined(__x86_64__) // just to be sure.
 #  define SYS_pidfd_open 434
+#endif
+
+#ifdef __SIGRTMIN
+#  define P_SIG_MAX (__SIGRTMIN-1)
+#else
+#  define P_SIG_MAX 31 // XXX: not future proof
 #endif
 
 inline int w_pidfd_open(pid_t pid, unsigned int flags) {
@@ -76,25 +83,57 @@ static pid_t read_pidfile(const char *pidfile_name) {
   }
  end:
   return r;
- }
+}
+
+static int signal_rewrites[P_SIG_MAX + 1] = {[0 ... P_SIG_MAX] = -1};
+
+static int parse_signal_rewrite(const char *arg) {
+  int orig, repl;
+  if (sscanf(arg, "%d=%d", &orig, &repl) == 2) {
+    if (orig < 1 || orig > P_SIG_MAX) {
+      goto end;
+    }
+    if (repl < 1 || repl > P_SIG_MAX) {
+      goto end;
+    }
+
+    signal_rewrites[orig] = repl;
+    return 0;
+  }
+ end:
+  return -1;
+}
 
 static uint32_t timer_cycles = 0;
 
 int main(int argc, char **argv) {
-  int r;
-  char *pidfile_name;
-  struct epoll_event events[MAX_EVENTS];
-
   if (argc < 3) {
-    fprintf(stderr, "USAGE: %s <path to pid file> <argv>\n", argv[0]);
+    fprintf(stderr, "USAGE: %s [options] <path to pid file> <argv>\n", argv[0]);
     return 1;
   }
 
-  pidfile_name = argv[1];
-
-  int evts, epollfd, sigfd, timerfd, target_pid_fd;
+  int child_argv_start;
+  int r, evts, epollfd, sigfd, timerfd, target_pid_fd;
   pid_t target_pid = -1;
+  char *pidfile_name;
+  struct epoll_event events[MAX_EVENTS];
   struct signalfd_siginfo last_siginfo;
+
+  // Parse optional arguments
+  while ((r = getopt(argc, argv, "r:")) != -1) {
+    switch (r) {
+    case 'r':
+      if (parse_signal_rewrite(optarg) == -1) {
+        fprintf(stderr, "failed to parse signal rewrite: '%s'\n", optarg);
+        return 1;
+      }
+      break;
+    default:
+      return 1;
+    }
+  }
+  pidfile_name = argv[optind];
+  child_argv_start = optind + 1;
 
   // Set up epoll
   if ((epollfd = epoll_create1(EPOLL_CLOEXEC)) == -1) {
@@ -163,7 +202,7 @@ int main(int argc, char **argv) {
       // Unblock all signals for child
       sigprocmask(SIG_UNBLOCK, &all_signals, NULL);
 
-      if (execvp(argv[2], &argv[2]) == -1) {
+      if (execvp(argv[child_argv_start], &argv[child_argv_start]) == -1) {
         perror("execvp");
       }
       _exit(1);
@@ -171,7 +210,7 @@ int main(int argc, char **argv) {
   }
 
   // Clear argv
-  for (int i = 2; i < argc; i++) {
+  for (int i = child_argv_start; i < argc; i++) {
     memset(argv[i], 0, strlen(argv[i]));
   }
 
@@ -232,8 +271,11 @@ int main(int argc, char **argv) {
           continue;
         }
 
-        int sig = last_siginfo.ssi_signo;
-        fprintf(stderr, "got signal %d\n", sig);
+        int sig = signal_rewrites[last_siginfo.ssi_signo];
+        if (sig == -1) {
+          sig = last_siginfo.ssi_signo;
+        }
+        fprintf(stderr, "got signal %d (translating to %d)\n", last_siginfo.ssi_signo, sig);
 
         if (target_pid == -1) {
           fprintf(stderr, "loading pidfile immediately\n");
@@ -252,6 +294,8 @@ int main(int argc, char **argv) {
           }
         }
 
+        // TODO: kill() supports sending a signal to process group. maybe consider switching to
+        // that for now? remember to keep eye on `pidfd_send_signal` changes.
         if (target_pid != -1) {
           int method_used = 0;
           if (target_pid_fd != -1) {
