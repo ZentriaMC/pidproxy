@@ -1,2 +1,4 @@
 /pidproxy
 /pidproxy.upx
+*.o
+*.so

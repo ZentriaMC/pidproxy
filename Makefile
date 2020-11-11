@@ -4,11 +4,16 @@ UPX = upx
 UPXFLAGS = 
 CFLAGS = -O2 -fomit-frame-pointer -s -static -pipe -D_FORTIFY_SOURCE=2 -mtune=generic -flto
 
-pidproxy:
-	$(CC) $(CFLAGS) pidproxy.c -o pidproxy
+CODE = pidproxy.c
 
-pidproxy.upx:
-	$(UPX) $(UPXFLAGS) pidproxy -o pidproxy.upx
+%.o: %.c $(CODE)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+pidproxy: pidproxy.o
+	$(CC) $(CFLAGS) -o $@ $<
+
+pidproxy.upx: pidproxy
+	$(UPX) $(UPXFLAGS) -o $@ $<
 
 clean:
 	rm -rf *.o pidproxy pidproxy.upx
