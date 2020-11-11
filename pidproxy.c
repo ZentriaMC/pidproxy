@@ -28,11 +28,11 @@
 #  define P_SIG_MAX 31 // XXX: not future proof
 #endif
 
-inline int w_pidfd_open(pid_t pid, unsigned int flags) {
+static int w_pidfd_open(pid_t pid, unsigned int flags) {
   return syscall(SYS_pidfd_open, pid, flags);
 }
 
-inline int w_pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags) {
+static int w_pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags) {
   return syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
 }
 
@@ -68,7 +68,6 @@ static int watch_target_process(int epfd, const char *pidfile_name,
   }
 
   pid_t target_pid = -1;
-  int target_pid_fd = -1;
 
   // Read PID file from the file
   do {
