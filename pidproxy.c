@@ -68,19 +68,18 @@ static pid_t read_pidfile(const char *pidfile_name) {
   int r = -1;
   pid_t target_pid = -1;
   FILE* pid_file = fopen(pidfile_name, "r");
-  if (pid_file) {
-    do {
-      r = fscanf(pid_file, "%d", &target_pid);
-    } while (r == -1 && errno == EINTR);
-    r = target_pid;
-
-    if (target_pid == -1) {
-      fprintf(stderr, "could not find an usable pid from '%s'\n", pidfile_name);
-    }
-    fclose(pid_file);
-  } else {
+  if (!pid_file) {
     fprintf(stderr, "failed to open pidfile '%s': %s\n", pidfile_name, strerror(errno));
+    goto end;
   }
+
+  do {
+    r = fscanf(pid_file, "%d", &target_pid);
+  } while (r == -1 && errno == EINTR);
+
+  r = target_pid;
+  fclose(pid_file);
+
  end:
   return r;
 }
@@ -240,7 +239,6 @@ int main(int argc, char **argv) {
         } else if (target_pid == -1) {
           if ((r = read_pidfile(pidfile_name)) != -1) {
             target_pid = r;
-            fprintf(stderr, "target process pid appears to be %d\n", target_pid);
 
             // Open pidfd and register it with epoll
             if ((target_pid_fd = add_pollable_pid(epollfd, target_pid)) == -1) {
@@ -278,8 +276,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "got signal %d (translating to %d)\n", last_siginfo.ssi_signo, sig);
 
         if (target_pid == -1) {
-          fprintf(stderr, "loading pidfile immediately\n");
-
           // Load pid immediately
           if ((r = read_pidfile(pidfile_name)) != -1) {
             target_pid = r;
@@ -314,7 +310,6 @@ int main(int argc, char **argv) {
             }
             perror("kill");
           }
-          fprintf(stderr, "signal proxied to %d using %s\n", target_pid, method_used ? "pidfd_send_signal" : "kill");
         } else {
           fprintf(stderr, "child does not seem to be available yet\n");
         }
