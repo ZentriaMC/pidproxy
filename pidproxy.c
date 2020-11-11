@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
 
   // Clear argv
   for (int i = child_argv_start; i < argc; i++) {
-    memset(argv[i], 0, strlen(argv[i]));
+    bzero(argv[i], strlen(argv[i]));
   }
 
   // Start polling
@@ -270,7 +270,7 @@ int main(int argc, char **argv) {
         }
       } else if (fd == sigfd) {
         // *** Signal handling
-        memset(&last_siginfo, 0, sizeof(struct signalfd_siginfo));
+        bzero(&last_siginfo, sizeof(struct signalfd_siginfo));
         if (read(fd, &last_siginfo, sizeof(struct signalfd_siginfo)) == -1) {
           perror("read");
           continue;
