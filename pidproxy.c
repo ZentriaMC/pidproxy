@@ -119,6 +119,7 @@ static int parse_signal_rewrite(const char *arg) {
 }
 
 static uint32_t timer_cycles = 0;
+static uint32_t direct_child_exited_at = 0;
 static unsigned int exit_signals_caught = 0;
 
 int main(int argc, char **argv) {
@@ -249,8 +250,12 @@ int main(int argc, char **argv) {
         r = read(timerfd, &_dummy, sizeof(uint64_t));
         timer_cycles++;
 
-        if (target_pid == -1) {
-          if (timer_cycles > PIDFILE_MAX_WAIT_TIME) {
+        if (target_pid == -1 && direct_child_fd == -1) {
+          if (direct_child_exited_at == -1) {
+            direct_child_exited_at = timer_cycles;
+          }
+
+          if ((timer_cycles - direct_child_exited_at) > PIDFILE_MAX_WAIT_TIME) {
             fprintf(stderr, "target process did not appear after waiting for %d seconds\n", PIDFILE_MAX_WAIT_TIME);
             return 1;
           }
@@ -275,11 +280,13 @@ int main(int argc, char **argv) {
           continue;
         }
 
-        int sig = signal_rewrites[last_siginfo.ssi_signo];
-        if (sig == -1) {
-          sig = last_siginfo.ssi_signo;
+        int sig = last_siginfo.ssi_signo;
+        if ((r = signal_rewrites[last_siginfo.ssi_signo]) != -1) {
+          fprintf(stderr, "got signal %d (translating to %d)\n", sig, r);
+          sig = r;
+        } else {
+          fprintf(stderr, "got signal %d\n", sig);
         }
-        fprintf(stderr, "got signal %d (translating to %d)\n", last_siginfo.ssi_signo, sig);
 
         // Try reading pidfile
         if (target_pid == -1) {
@@ -302,13 +309,12 @@ int main(int argc, char **argv) {
         } else {
           // TODO: kill() supports sending a signal to process group. maybe consider switching to
           // that for now? remember to keep eye on `pidfd_send_signal` changes.
-          int method_used = target_pid_fd == -1 ? 0 : 1;
-          if ((method_used == 0 ? kill(target_pid, sig) : w_pidfd_send_signal(target_pid_fd, sig, NULL, 0)) == -1) {
+          if ((target_pid_fd == -1 ? kill(target_pid, sig) : w_pidfd_send_signal(target_pid_fd, sig, NULL, 0)) == -1) {
             if (errno == ESRCH) {
               fprintf(stderr, "process has died, quitting\n");
               return 0;
             }
-            perror(method_used == 0 ? "kill" : "pidfd_send_signal");
+            perror(target_pid_fd == -1 ? "kill" : "pidfd_send_signal");
           }
         }
       } else if (fd == target_pid_fd) {
