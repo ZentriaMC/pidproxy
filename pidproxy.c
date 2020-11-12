@@ -156,13 +156,17 @@ int main(int argc, char **argv) {
   }
 
   int r, direct_child_fd = -1, target_pid_fd = -1;
+  int kill_process_group = 0;
   pid_t target_pid = -1;
   struct epoll_event events[MAX_EVENTS];
   struct signalfd_siginfo last_siginfo;
 
   // Parse optional arguments
-  while ((r = getopt(argc, argv, "r:")) != -1) {
+  while ((r = getopt(argc, argv, "gr:")) != -1) {
     switch (r) {
+    case 'g':
+      kill_process_group = 1;
+      break;
     case 'r':
       if (parse_signal_rewrite(optarg) == -1) {
         fprintf(stderr, "failed to parse signal rewrite: '%s'\n", optarg);
@@ -346,14 +350,14 @@ int main(int argc, char **argv) {
             return 1;
           }
         } else {
-          // TODO: kill() supports sending a signal to process group. maybe consider switching to
-          // that for now? remember to keep eye on `pidfd_send_signal` changes.
-          if ((target_pid_fd == -1 ? kill(target_pid, sig) : w_pidfd_send_signal(target_pid_fd, sig, NULL, 0)) == -1) {
+          // TODO: remember to keep eye on `pidfd_send_signal` changes, since it does not support killing a process group.
+          int method_used = kill_process_group || target_pid_fd == -1;
+          if ((method_used ? kill(kill_process_group ? -target_pid : target_pid, sig) : w_pidfd_send_signal(target_pid_fd, sig, NULL, 0)) == -1) {
             if (errno == ESRCH) {
               fprintf(stderr, "process has died, quitting\n");
               return 0;
             }
-            perror(target_pid_fd == -1 ? "kill" : "pidfd_send_signal");
+            perror(method_used ? "kill" : "pidfd_send_signal");
           }
         }
       } else if (fd == target_pid_fd) {
