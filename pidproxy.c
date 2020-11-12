@@ -1,11 +1,11 @@
-#include <signal.h>
-#include <stdint.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <getopt.h>
+#include <signal.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/signalfd.h>
@@ -56,6 +56,8 @@ static int add_pollable_fd(int efd, int fd) {
   return -2;
 }
 
+#define should_try_again(r) ((r) == -1 && (errno) == EINTR)
+
 #define add_pollable_pid(efd, pid) (add_pollable_fd(efd, w_pidfd_open(pid, 0)))
 
 static int watch_target_process(int epfd, const char *pidfile_name,
@@ -70,9 +72,7 @@ static int watch_target_process(int epfd, const char *pidfile_name,
   pid_t target_pid = -1;
 
   // Read PID file from the file
-  do {
-    r = fscanf(pid_file, "%d", &target_pid);
-  } while (r == -1 && errno == EINTR);
+  do { r = fscanf(pid_file, "%d", &target_pid); } while (should_try_again(r));
   fclose(pid_file);
 
   if (target_pid == -1) {
@@ -118,8 +118,8 @@ static int parse_signal_rewrite(const char *arg) {
   return -1;
 }
 
-static uint32_t timer_cycles = 0;
-static uint32_t direct_child_exited_at = 0;
+static uint64_t timer_cycles = 0;
+static uint64_t direct_child_exited_at = 0;
 static unsigned int exit_signals_caught = 0;
 
 int main(int argc, char **argv) {
@@ -128,11 +128,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  int child_argv_start;
-  int r, direct_child_fd, evts, epollfd, sigfd, timerfd, target_pid_fd;
+  int r, direct_child_fd, target_pid_fd;
   pid_t target_pid = -1;
-  char *pidfile_name;
-  uint64_t _dummy;
   struct epoll_event events[MAX_EVENTS];
   struct signalfd_siginfo last_siginfo;
 
@@ -149,10 +146,11 @@ int main(int argc, char **argv) {
       return 1;
     }
   }
-  pidfile_name = argv[optind];
-  child_argv_start = optind + 1;
+  char *pidfile_name = argv[optind];
+  int child_argv_start = optind + 1;
 
   // Set up epoll
+  int epollfd;
   if ((epollfd = epoll_create1(EPOLL_CLOEXEC)) == -1) {
     perror("epoll_create1");
     return 1;
@@ -176,12 +174,14 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  int sigfd;
   if ((sigfd = add_pollable_fd(epollfd, signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC))) < 0) {
     fprintf(stderr, "failed to set up signalfd (%s error): %s\n", sigfd == -1 ? "signalfd" : "epoll_ctl", strerror(errno));
     return 1;
   }
 
   // Set up timer and make it tick after every 1 second
+  int timerfd;
   if ((timerfd = add_pollable_fd(epollfd, timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK))) < 0) {
     fprintf(stderr, "failed to set up timerfd (%s error): %s\n", timerfd == -1 ? "timerfd_create" : "epoll_ctl", strerror(errno));
     return 1;
@@ -228,12 +228,12 @@ int main(int argc, char **argv) {
   }
 
   // Start polling
+  int evts;
   while (1) {
-    if ((evts = epoll_wait(epollfd, events, MAX_EVENTS, -1)) == -1) {
-      if (errno == EAGAIN) {
-        continue;
-      }
+    do { evts = epoll_wait(epollfd, events, MAX_EVENTS, -1); } while (should_try_again(evts));
+    if (evts == -1) {
       perror("epoll_wait");
+      return 1;
     }
 
     // Process events
@@ -247,7 +247,8 @@ int main(int argc, char **argv) {
         close(direct_child_fd);
       } else if (fd == timerfd) {
         // *** Timer
-        r = read(timerfd, &_dummy, sizeof(uint64_t));
+        uint64_t expires;
+        r = read(timerfd, &expires, sizeof(uint64_t));
         timer_cycles++;
 
         if (target_pid == -1 && direct_child_fd == -1) {
@@ -268,9 +269,20 @@ int main(int argc, char **argv) {
         }
 
         if (target_pid != -1) {
-          // We don't need timer anymore.
-          close(timerfd);
-          timerfd = -1;
+          if (direct_child_fd == -1) {
+            // Need to poll the PID
+            if (kill(target_pid, 0) == -1) {
+              if (errno == ESRCH) {
+                fprintf(stderr, "process has died, quitting\n");
+                return 0;
+              }
+              perror("kill");
+            }
+          } else {
+            // We don't need timer anymore.
+            close(timerfd);
+            timerfd = -1;
+          }
         }
       } else if (fd == sigfd) {
         // *** Signal handling
