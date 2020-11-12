@@ -58,7 +58,29 @@ static int add_pollable_fd(int efd, int fd) {
 
 #define should_try_again(r) ((r) == -1 && (errno) == EINTR)
 
-#define add_pollable_pid(efd, pid) (add_pollable_fd(efd, w_pidfd_open(pid, 0)))
+static int pidfd_working = 1;
+
+static int add_pollable_pid(int efd, pid_t pid) {
+  if (!pidfd_working) {
+    return -1;
+  }
+
+  int pidfd;
+  if ((pidfd = w_pidfd_open(pid, 0)) == -1) {
+    int err = errno;
+    if (err == ENOSYS) {
+      fprintf(stderr, "pidfd_open syscall is not supported, falling back to polling\n");
+      pidfd_working = 0;
+    } else if (err == EPERM) {
+      fprintf(stderr, "seems like pidfd_open syscall does not work, falling back to polling\n");
+      pidfd_working = 0;
+    }
+    errno = err;
+    return -1;
+  }
+
+  return add_pollable_fd(efd, pidfd);
+}
 
 static int watch_target_process(int epfd, const char *pidfile_name,
                                 pid_t *target_pid_ptr, int *target_pid_fd_ptr) {
@@ -81,6 +103,11 @@ static int watch_target_process(int epfd, const char *pidfile_name,
   }
 
   *target_pid_ptr = target_pid;
+
+  if (!pidfd_working) {
+    *target_pid_fd_ptr = -1;
+    return 0;
+  }
 
   // Open pidfd. This is not fatal, however we won't know when target process exits.
   if ((r = add_pollable_pid(epfd, target_pid)) < 0) {
@@ -128,7 +155,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  int r, direct_child_fd, target_pid_fd;
+  int r, direct_child_fd = -1, target_pid_fd = -1;
   pid_t target_pid = -1;
   struct epoll_event events[MAX_EVENTS];
   struct signalfd_siginfo last_siginfo;
