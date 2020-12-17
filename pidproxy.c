@@ -98,13 +98,19 @@ static int watch_target_process(int epfd, const char *pidfile_name,
 
   // Read PID file from the file
   do { r = fscanf(pid_file, "%d", &target_pid); } while (should_try_again(r));
-  fclose(pid_file);
-
-  if (target_pid == -1) {
-    perror("fscanf");
+  if (target_pid <= 0) {
+    if (feof(pid_file)) {
+      fprintf(stderr, "pid file '%s' was empty\n", pidfile_name);
+    } else if (target_pid == 0) {
+      fprintf(stderr, "could not find a pid from file '%s'\n", pidfile_name);
+    } else if (target_pid == -1) {
+      perror("fscanf");
+    }
+    fclose(pid_file);
     goto end;
   }
 
+  fclose(pid_file);
   *target_pid_ptr = target_pid;
 
   if (!pidfd_working) {
