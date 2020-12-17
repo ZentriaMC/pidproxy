@@ -1,10 +1,13 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <getopt.h>
+#include <pwd.h>
+#include <grp.h>
 #include <signal.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
@@ -145,6 +148,146 @@ static int parse_signal_rewrite(const char *arg) {
   return -1;
 }
 
+static int resolve_uid_gid(const char *name, uid_t *uid, gid_t *gid,
+                           size_t *supplementary_group_n,
+                           gid_t **supplementary_groups) {
+  int is_number = 1;
+  for (int i = 0; i < strnlen(name, 32); i++) {
+    if (!isdigit(name[i])) {
+      is_number = 0;
+      break;
+    }
+  }
+
+  struct passwd pwd;
+  struct passwd *result;
+  int r;
+  char *buf = NULL;
+  size_t bufsz;
+  int sgroup_n = 8;
+  gid_t *sgroups = NULL;
+  if ((bufsz = sysconf(_SC_GETPW_R_SIZE_MAX)) == -1) {
+    bufsz = 2 << 13;
+  }
+  if ((buf = malloc(bufsz)) == NULL) {
+    perror("malloc");
+    return -1;
+  };
+
+  if (is_number) {
+    // Convert to integer first
+    uid_t provided_uid = strtoul(name, NULL, 10);
+    if (errno != 0) {
+      perror("strtoul");
+      goto err;
+    }
+
+    r = getpwuid_r(provided_uid, &pwd, buf, bufsz, &result);
+  } else {
+    r = getpwnam_r(name, &pwd, buf, bufsz, &result);
+  }
+
+  if (result == NULL) {
+    if (r != 0) {
+      perror(is_number ? "getpwuid_r" : "getpwnam_r");
+    }
+    goto err;
+  }
+
+  *uid = result->pw_uid;
+  *gid = result->pw_gid;
+
+  // Grab supplementary groups
+  sgroups = malloc(sizeof(gid_t) * sgroup_n);
+  if (sgroups == NULL) {
+    perror("malloc");
+    goto err;
+  }
+
+  while (getgrouplist(result->pw_name, result->pw_gid, sgroups, &sgroup_n) < 0) {
+    gid_t *n_sgroups;
+    if ((n_sgroups = realloc(sgroups, sizeof(gid_t) * sgroup_n)) == NULL) {
+      perror("realloc");
+      goto err;
+    };
+    sgroups = n_sgroups;
+  }
+
+  if (sgroup_n == 0) {
+    free(sgroups);
+    sgroups = NULL;
+  }
+
+  *supplementary_group_n = sgroup_n;
+  *supplementary_groups = sgroups;
+
+  if (buf != NULL) {
+    free(buf);
+  }
+  return 0;
+
+ err:
+  if (sgroups != NULL) {
+    free(sgroups);
+  }
+  if (buf != NULL) {
+    free(buf);
+  }
+  return -1;
+}
+
+static int resolve_gid(const char *name, gid_t *gid) {
+  int is_number = 1;
+  for (int i = 0; i < strnlen(name, 32); i++) {
+    if (!isdigit(name[i])) {
+      is_number = 0;
+      break;
+    }
+  }
+
+  struct group grp;
+  struct group *result;
+  int r;
+  char *buf;
+  size_t bufsz;
+  if ((bufsz = sysconf(_SC_GETGR_R_SIZE_MAX)) == -1) {
+    bufsz = 2 << 13;
+  }
+  if ((buf = malloc(bufsz)) == NULL) {
+    perror("malloc");
+    return -1;
+  };
+
+  if (is_number) {
+    // Convert to integer first
+    uid_t provided_gid = strtoul(name, NULL, 10);
+    if (errno != 0) {
+      perror("strtoul");
+      goto err;
+    }
+
+    r = getgrgid_r(provided_gid, &grp, buf, bufsz, &result);
+  } else {
+    r = getgrnam_r(name, &grp, buf, bufsz, &result);
+  }
+
+  if (result == NULL) {
+    if (r != 0) {
+      perror(is_number ? "getgrgid_r" : "getgrnam_r");
+    }
+    goto err;
+  }
+
+  *gid = result->gr_gid;
+
+  free(buf);
+  return 0;
+
+ err:
+  free(buf);
+  return -1;
+}
+
 static uint64_t timer_cycles = 0;
 static uint64_t direct_child_exited_at = 0;
 static unsigned int exit_signals_caught = 0;
@@ -158,11 +301,17 @@ int main(int argc, char **argv) {
   int r, direct_child_fd = -1, target_pid_fd = -1;
   int kill_process_group = 0;
   pid_t target_pid = -1;
+
+  uid_t target_uid = -1;
+  gid_t target_gid = -1;
+  size_t supplementary_group_n = 0;
+  gid_t *supplementary_groups = NULL;
+
   struct epoll_event events[MAX_EVENTS];
   struct signalfd_siginfo last_siginfo;
 
   // Parse optional arguments
-  while ((r = getopt(argc, argv, "gr:")) != -1) {
+  while ((r = getopt(argc, argv, "gr:U:G:")) != -1) {
     switch (r) {
     case 'g':
       kill_process_group = 1;
@@ -173,6 +322,29 @@ int main(int argc, char **argv) {
         return 1;
       }
       break;
+    case 'U':
+      if (getuid() != 0) {
+        fprintf(stderr, "cannot setuid when current uid is not 0\n");
+        return 1;
+      }
+
+      if (resolve_uid_gid(optarg, &target_uid, &target_gid, &supplementary_group_n, &supplementary_groups) < 0) {
+        fprintf(stderr, "failed to resolve uid for '%s'\n", optarg);
+        return 1;
+      }
+      break;
+    case 'G': {
+      if (getuid() != 0) {
+        fprintf(stderr, "cannot setgid when current uid is not 0\n");
+        return 1;
+      }
+
+      if (resolve_gid(optarg, &target_gid) < 0) {
+        fprintf(stderr, "failed to resolve gid for '%s'\n", optarg);
+        return 1;
+      }
+      break;
+    }
     default:
       return 1;
     }
@@ -240,10 +412,38 @@ int main(int argc, char **argv) {
       // Unblock all signals for child
       sigprocmask(SIG_UNBLOCK, &all_signals, NULL);
 
+      if (target_gid != -1) {
+        if (setgid(target_gid) < 0) {
+          perror("setgid");
+          _exit(1);
+        }
+
+        if (supplementary_group_n > 0 && setgroups(supplementary_group_n, supplementary_groups) < 0) {
+          perror("setgroups");
+          _exit(1);
+        }
+      }
+
+      if (target_uid != -1) {
+        if (setuid(target_uid) < 0) {
+          perror("setuid");
+          _exit(1);
+        }
+
+        if (setuid(0) == 0 || seteuid(0) == 0) {
+          fprintf(stderr, "could not drop root privileges\n");
+          return -1;
+        }
+      }
+
       if (execvp(argv[child_argv_start], &argv[child_argv_start]) == -1) {
         perror("execvp");
       }
       _exit(1);
+    }
+
+    if (supplementary_group_n > 0 && supplementary_groups != NULL) {
+      free(supplementary_groups);
     }
 
     if ((direct_child_fd = add_pollable_pid(epollfd, direct_child)) < 0) {
