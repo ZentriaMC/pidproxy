@@ -1,3 +1,5 @@
 /pidproxy
 /pidproxy.upx
 /docker
+*.o
+*.so
