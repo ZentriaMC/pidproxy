@@ -170,8 +170,8 @@ int main(int argc, char **argv) {
   int kill_process_group = 0;
   pid_t target_pid = -1;
 
-  uid_t target_uid = -1;
-  gid_t target_gid = -1;
+  uid_t target_uid = 0;
+  gid_t target_gid = 0;
   size_t supplementary_group_n = 0;
   gid_t *supplementary_groups = NULL;
 
@@ -280,7 +280,7 @@ int main(int argc, char **argv) {
       // Unblock all signals for child
       sigprocmask(SIG_UNBLOCK, &all_signals, NULL);
 
-      if (target_gid != -1) {
+      if (target_gid != 0) {
         if (setgid(target_gid) < 0) {
           perror("setgid");
           _exit(1);
@@ -292,7 +292,7 @@ int main(int argc, char **argv) {
         }
       }
 
-      if (target_uid != -1) {
+      if (target_uid != 0) {
         if (setuid(target_uid) < 0) {
           perror("setuid");
           _exit(1);
@@ -351,7 +351,7 @@ int main(int argc, char **argv) {
         timer_cycles++;
 
         if (target_pid == -1 && direct_child_fd == -1) {
-          if (direct_child_exited_at == -1) {
+          if (direct_child_exited_at == 0) {
             direct_child_exited_at = timer_cycles;
           }
 

@@ -13,7 +13,7 @@ int resolve_uid_gid(const char *name, uid_t *uid, gid_t *gid,
                     size_t *supplementary_group_n,
                     gid_t **supplementary_groups) {
   int is_number = 1;
-  for (int i = 0; i < strnlen(name, 32); i++) {
+  for (size_t i = 0; i < strnlen(name, 32); i++) {
     if (!isdigit(name[i])) {
       is_number = 0;
       break;
@@ -27,8 +27,11 @@ int resolve_uid_gid(const char *name, uid_t *uid, gid_t *gid,
   size_t bufsz;
   int sgroup_n = 8;
   gid_t *sgroups = NULL;
-  if ((bufsz = sysconf(_SC_GETPW_R_SIZE_MAX)) == -1) {
+  long s2;
+  if ((s2 = sysconf(_SC_GETPW_R_SIZE_MAX)) == -1) {
     bufsz = 2 << 13;
+  } else {
+    bufsz = s2;
   }
   if ((buf = malloc(bufsz)) == NULL) {
     perror("malloc");
@@ -99,7 +102,7 @@ int resolve_uid_gid(const char *name, uid_t *uid, gid_t *gid,
 
 int resolve_gid(const char *name, gid_t *gid) {
   int is_number = 1;
-  for (int i = 0; i < strnlen(name, 32); i++) {
+  for (size_t i = 0; i < strnlen(name, 32); i++) {
     if (!isdigit(name[i])) {
       is_number = 0;
       break;
@@ -111,8 +114,11 @@ int resolve_gid(const char *name, gid_t *gid) {
   int r;
   char *buf;
   size_t bufsz;
-  if ((bufsz = sysconf(_SC_GETGR_R_SIZE_MAX)) == -1) {
+  long s2;
+  if ((s2 = sysconf(_SC_GETGR_R_SIZE_MAX)) == -1) {
     bufsz = 2 << 13;
+  } else {
+    bufsz = s2;
   }
   if ((buf = malloc(bufsz)) == NULL) {
     perror("malloc");
