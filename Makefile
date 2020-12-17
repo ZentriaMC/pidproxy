@@ -1,16 +1,16 @@
-CC = cc
-LD = ld
-UPX = upx
-UPXFLAGS = 
-CFLAGS = -O2 -fomit-frame-pointer -s -static -pipe -D_FORTIFY_SOURCE=2 -mtune=generic -flto
+CC ?= cc
+LD ?= ld
+UPX ?= upx
+UPXFLAGS ?=
+CFLAGS ?= -O2 -fomit-frame-pointer -s -static -pipe -D_FORTIFY_SOURCE=2 -mtune=generic -flto
 
-CODE = pidproxy.c
+CODE = pidproxy.o user.o
 
-%.o: %.c $(CODE)
+%.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-pidproxy: pidproxy.o
-	$(CC) $(CFLAGS) -o $@ $<
+pidproxy: $(CODE)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 pidproxy.upx: pidproxy
 	$(UPX) $(UPXFLAGS) -o $@ $<
