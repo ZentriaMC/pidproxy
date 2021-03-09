@@ -249,7 +249,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if ((argc - optind - 1) < 3) {
+  if ((argc - optind + 1) < 3) {
     return print_help(argv[0], 1);
   }
 
