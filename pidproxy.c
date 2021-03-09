@@ -50,6 +50,13 @@
 #  define P_SIG_MAX 31 // XXX: not future proof
 #endif
 
+#define USAGE_TEXT \
+"-h\t\tShows this help text\n"\
+"-g\t\tWhether to kill whole process group (defaults to no)\n"\
+"-r <from=to>\tPass received signal `from` to child as `to`. Can be specified multiple times\n"\
+"-U <uid>\tWhat UID to run the child process as\n"\
+"-G <gid>\tWhat GID to run the child process as (default: main group of user specified by -U flag, otherwise current gid)\n"
+
 static int w_pidfd_open(pid_t pid, unsigned int flags) {
   return syscall(SYS_pidfd_open, pid, flags);
 }
@@ -180,6 +187,7 @@ static unsigned int exit_signals_caught = 0;
 int main(int argc, char **argv) {
   if (argc < 3) {
     fprintf(stderr, "USAGE: %s [options] <path to pid file> <argv>\n", argv[0]);
+    fprintf(stderr, "\n" USAGE_TEXT "\n");
     return 1;
   }
 
