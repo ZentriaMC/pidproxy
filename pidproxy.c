@@ -195,6 +195,8 @@ int main(int argc, char **argv) {
   int kill_process_group = 0;
   pid_t target_pid = -1;
 
+  char *target_uid_value = NULL;
+  char *target_gid_value = NULL;
   uid_t target_uid = 0;
   gid_t target_gid = 0;
   size_t supplementary_group_n = 0;
@@ -223,10 +225,11 @@ int main(int argc, char **argv) {
         return 1;
       }
 
-      if (resolve_uid_gid(optarg, &target_uid, &target_gid, &supplementary_group_n, &supplementary_groups) < 0) {
-        fprintf(stderr, "failed to resolve uid for '%s'\n", optarg);
-        return 1;
+      if (target_uid_value != NULL) {
+        free(target_uid_value);
       }
+      target_uid_value = strndup(optarg, 256-1);
+
       break;
     case 'G': {
       if (getuid() != 0) {
@@ -234,10 +237,11 @@ int main(int argc, char **argv) {
         return 1;
       }
 
-      if (resolve_gid(optarg, &target_gid) < 0) {
-        fprintf(stderr, "failed to resolve gid for '%s'\n", optarg);
-        return 1;
+      if (target_gid_value != NULL) {
+        free(target_gid_value);
       }
+      target_gid_value = strndup(optarg, 256-1);
+
       break;
     }
     default:
@@ -247,6 +251,26 @@ int main(int argc, char **argv) {
 
   if ((argc - optind - 1) < 3) {
     return print_help(argv[0], 1);
+  }
+
+  if (getuid() == 0 && target_gid_value != NULL && resolve_gid(target_gid_value, &target_gid) < 0) {
+    fprintf(stderr, "failed to resolve gid for '%s'\n", optarg);
+    return 1;
+  }
+
+  if (getuid() == 0 && target_uid_value != NULL && resolve_uid_gid(target_uid_value, &target_uid, &target_gid, &supplementary_group_n, &supplementary_groups) < 0) {
+    fprintf(stderr, "failed to resolve uid for '%s'\n", optarg);
+    return 1;
+  }
+
+  if (target_uid_value != NULL) {
+    free(target_uid_value);
+    target_uid_value = NULL;
+  }
+
+  if (target_gid_value != NULL) {
+    free(target_gid_value);
+    target_gid_value = NULL;
   }
 
   char *pidfile_name = argv[optind];
