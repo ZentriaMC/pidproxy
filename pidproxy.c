@@ -184,13 +184,13 @@ static uint64_t timer_cycles = 0;
 static uint64_t direct_child_exited_at = 0;
 static unsigned int exit_signals_caught = 0;
 
-int main(int argc, char **argv) {
-  if (argc < 3) {
-    fprintf(stderr, "USAGE: %s [options] <path to pid file> <argv>\n", argv[0]);
-    fprintf(stderr, "\n" USAGE_TEXT "\n");
-    return 1;
-  }
+static int print_help(const char *name, int code) {
+  fprintf(stderr, "USAGE: %s [options] <path to pid file> <argv>\n", name);
+  fprintf(stderr, "\n" USAGE_TEXT "\n");
+  return code;
+}
 
+int main(int argc, char **argv) {
   int r, direct_child_fd = -1, target_pid_fd = -1;
   int kill_process_group = 0;
   pid_t target_pid = -1;
@@ -204,11 +204,13 @@ int main(int argc, char **argv) {
   struct signalfd_siginfo last_siginfo;
 
   // Parse optional arguments
-  while ((r = getopt(argc, argv, "gr:U:G:")) != -1) {
+  while ((r = getopt(argc, argv, "ghr:U:G:")) != -1) {
     switch (r) {
     case 'g':
       kill_process_group = 1;
       break;
+    case 'h':
+      return print_help(argv[0], 0);
     case 'r':
       if (parse_signal_rewrite(optarg) == -1) {
         fprintf(stderr, "failed to parse signal rewrite: '%s'\n", optarg);
@@ -242,6 +244,11 @@ int main(int argc, char **argv) {
       return 1;
     }
   }
+
+  if ((argc - optind - 1) < 3) {
+    return print_help(argv[0], 1);
+  }
+
   char *pidfile_name = argv[optind];
   int child_argv_start = optind + 1;
 
