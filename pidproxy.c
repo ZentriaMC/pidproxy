@@ -54,6 +54,7 @@
 "-h\t\tShows this help text\n"\
 "-g\t\tWhether to kill whole process group (defaults to no)\n"\
 "-r <from=to>\tPass received signal `from` to child as `to`. Can be specified multiple times\n"\
+"-t\t\tWhether to allow running from tty as a root. Used to prevent exploits using TIOCSTI ioctl\n"\
 "-U <uid>\tWhat UID to run the child process as\n"\
 "-G <gid>\tWhat GID to run the child process as (default: main group of user specified by -U flag, otherwise current gid)\n"
 
@@ -193,6 +194,7 @@ static int print_help(const char *name, int code) {
 int main(int argc, char **argv) {
   int r, direct_child_fd = -1, target_pid_fd = -1;
   int kill_process_group = 0;
+  int allow_tty = 0;
   pid_t target_pid = -1;
 
   char *target_uid_value = NULL;
@@ -206,7 +208,7 @@ int main(int argc, char **argv) {
   struct signalfd_siginfo last_siginfo;
 
   // Parse optional arguments
-  while ((r = getopt(argc, argv, "ghr:U:G:")) != -1) {
+  while ((r = getopt(argc, argv, "ghr:tU:G:")) != -1) {
     switch (r) {
     case 'g':
       kill_process_group = 1;
@@ -218,6 +220,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "failed to parse signal rewrite: '%s'\n", optarg);
         return 1;
       }
+      break;
+    case 't':
+      allow_tty = 1;
       break;
     case 'U':
       if (getuid() != 0) {
@@ -251,6 +256,11 @@ int main(int argc, char **argv) {
 
   if ((argc - optind + 1) < 3) {
     return print_help(argv[0], 1);
+  }
+
+  if (getuid() == 0 && !allow_tty && isatty(STDIN_FILENO) == 1) {
+    fprintf(stderr, "running in tty is not allowed as a root. use `-t` to bypass if you're sure what you are doing.\n");
+    return 1;
   }
 
   if (getuid() == 0 && target_gid_value != NULL && resolve_gid(target_gid_value, &target_gid) < 0) {
