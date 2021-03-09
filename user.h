@@ -1,6 +1,6 @@
 /*
  * This file is part of pidproxy.
- * Copyright (c) 2020-2021 Mark Vainomaa.
+ * Copyright (c) 2020-2021 Zentria OÜ.
  *
  * pidproxy is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
