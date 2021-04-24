@@ -42,19 +42,28 @@ Makefile also provides `pidproxy.upx` target, which produces packed executable u
 
 ### Building against glibc
 
-Note that building functional pidproxy binary with `glibc` might be outright impossible:
+Note that building against `glibc` isn't generally necessary, unless your target users/groups come only from NSS (e.g [systemd DynamicUser][systemd-dynamicuser]) and not via
+standard `/etc/passwd` and/or `/etc/group`, or you just do not want to set up musl.
 
-```
-Program received signal SIGSEGV, Segmentation fault.
-0x00007ffff7c87bf1 in _nss_systemd_is_blocked () from /usr/lib/libnss_systemd.so.2
-(gdb) bt
-#0  0x00007ffff7c87bf1 in _nss_systemd_is_blocked () from /usr/lib/libnss_systemd.so.2
-#1  0x00007ffff7c8e577 in _nss_systemd_getgrgid_r () from /usr/lib/libnss_systemd.so.2
-#2  0x00000000004410a9 in getgrgid_r ()
-#3  0x0000000000401a00 in resolve_gid (gid=<optimized out>, name=<optimized out>) at user.c:153
-```
+Building functional static pidproxy binary with `glibc` *might be* outright impossible with systems running older systemd (< 246).
 
-I'm not sure why this happens, perhaps [`thread_local`](https://github.com/systemd/systemd/blob/3339381f22fd7fe6c07b67c630c32eab30fa9d27/src/nss-systemd/nss-systemd.c#L631) points to invalid address?
+See [issue comment @ htop-dev/htop](https://github.com/htop-dev/htop/issues/503#issuecomment-826007195) for solutions - TL;DR update systemd to version >= 246 (easiest and most reliable).
+
+<details>
+  <summary>GDB backtrace</summary>
+
+  ```
+  Program received signal SIGSEGV, Segmentation fault.
+  0x00007ffff7c87bf1 in _nss_systemd_is_blocked () from /usr/lib/libnss_systemd.so.2
+  (gdb) bt
+  #0  0x00007ffff7c87bf1 in _nss_systemd_is_blocked () from /usr/lib/libnss_systemd.so.2
+  #1  0x00007ffff7c8e577 in _nss_systemd_getgrgid_r () from /usr/lib/libnss_systemd.so.2
+  #2  0x00000000004410a9 in getgrgid_r ()
+  #3  0x0000000000401a00 in resolve_gid (gid=<optimized out>, name=<optimized out>) at user.c:153
+  ```
+</details>
+
+If upgrading or rebuilding systemd is not possible, then you are probably better off building non-static pidproxy.
 
 ## Notes
 
@@ -77,4 +86,5 @@ GNU General Public License version 3
 [s6-overlay]: https://github.com/just-containers/s6-overlay
 [supervisor-pidproxy-script]: https://github.com/Supervisor/supervisor/blob/master/supervisor/pidproxy.py
 [supervisor]: http://supervisord.org
+[systemd-dynamicuser]: https://www.freedesktop.org/software/systemd/man/systemd.exec.html#DynamicUser=
 [upx]: https://upx.github.io/
