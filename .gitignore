@@ -2,3 +2,4 @@
 /pidproxy.upx
 *.o
 *.so
+/result
