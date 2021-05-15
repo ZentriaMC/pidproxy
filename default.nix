@@ -7,7 +7,7 @@
 pkgs.stdenv.mkDerivation {
   pname = "pidproxy";
   version = "0.0.1";
-  src = ./.;
+  src = lib.cleanSource ./.;
 
   buildInputs = with pkgs; lib.optional enableStatic upx;
   nativeBuildInputs = with pkgs; [ (if enableStatic then musl else glibc) ];
