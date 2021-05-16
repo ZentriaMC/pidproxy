@@ -413,7 +413,11 @@ int main(int argc, char **argv) {
       } else if (fd == timerfd) {
         // *** Timer
         uint64_t expires;
-        r = read(timerfd, &expires, sizeof(uint64_t));
+        do { r = read(timerfd, &expires, sizeof(uint64_t)); } while (should_try_again(r));
+        if (r == -1) {
+          fprintf(stderr, "failed to read timerfd: %s\n", strerror(errno));
+          continue;
+        }
         timer_cycles++;
 
         if (target_pid == -1 && direct_child_fd == -1) {
@@ -427,7 +431,7 @@ int main(int argc, char **argv) {
           }
 
           // Try reading pidfile
-          if ((r = watch_target_process(epollfd, pidfile_name, &target_pid, &target_pid_fd)) == -2) {
+          if (watch_target_process(epollfd, pidfile_name, &target_pid, &target_pid_fd) == -2) {
             fprintf(stderr, "process has died, quitting\n");
             return 0;
           }
@@ -467,7 +471,7 @@ int main(int argc, char **argv) {
 
         // Try reading pidfile
         if (target_pid == -1) {
-          if ((r = watch_target_process(epollfd, pidfile_name, &target_pid, &target_pid_fd)) == -2) {
+          if (watch_target_process(epollfd, pidfile_name, &target_pid, &target_pid_fd) == -2) {
             fprintf(stderr, "process has died, quitting\n");
             return 0;
           }
