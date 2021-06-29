@@ -1,22 +1,22 @@
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{ lib, stdenv
+, musl, glibc, upx
 , enableStatic ? false
 , ...
 }:
 
-pkgs.stdenv.mkDerivation {
+stdenv.mkDerivation {
   pname = "pidproxy";
   version = "0.0.1";
   src = lib.cleanSource ./.;
 
-  buildInputs = with pkgs; lib.optional enableStatic upx;
-  nativeBuildInputs = with pkgs; [ (if enableStatic then musl else glibc) ];
+  nativeBuildInputs = lib.optional enableStatic upx;
+  buildInputs = [ (if enableStatic then musl else glibc) ];
 
   patchPhase = lib.optionalString (!enableStatic) ''
     sed -i 's/-static //g' Makefile
   '';
 
-  preBuild = with pkgs; lib.optionalString enableStatic ''
+  preBuild = lib.optionalString enableStatic ''
     makeFlagsArray+=("CC=${stdenv.cc.targetPrefix}cc -isystem ${musl.dev}/include -B${musl}/lib -L${musl}/lib")
   '';
 
