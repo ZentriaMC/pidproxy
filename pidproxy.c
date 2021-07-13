@@ -568,7 +568,7 @@ exit:
     add_env(11, "PIDPROXY_EXIT_CODE=%d", ret);
     add_env(11, "PIDPROXY_PID=%d", getpid());
     add_env(11, "PIDPROXY_CHILD_EXIT_CODE=%d", 0); // TODO: need to actually find a way to get the child exit status
-    add_env(11, "PIDPROXY_CHILD_KILL_SIGNAL=%d", 0); // TODO: ^
+    add_env(11, "PIDPROXY_CHILD_KILL_SIGNAL=%d", -1); // TODO: ^
 #undef add_env
 
     pid_t eh_child = fork();
