@@ -21,6 +21,7 @@ pidproxy supports following optional arguments:
 - `-r from:to` - Rewrite a signal. Can be specified multiple times to rewrite multiple signals. Example: `-r 15:1`
 - `-U uid/username` - Run target program as user. Can be either uid or username. Example: `-U game`
 - `-G gid/group` - Override the group which program should run as. Can be either gid or group name. Example: `-G game`
+- `-E path-to-program` - An external program to run after monitored process exits.
 
 ### Usage within containers
 
@@ -31,6 +32,15 @@ Here are few suggestions:
 - Use [dumb-init][dumb-init]
 - Use [S6 overlay][s6-overlay]
 - Cook your own using [go-reaper][go-reaper] for example
+
+### Exit hook
+
+Following environment variables will be exposed to the external program:
+- `PIDPROXY_PID_FILE` - PID file initially supplied to the pidproxy.
+- `PIDPROXY_EXIT_CODE` - pidproxy's own exit code.
+- `PIDPROXY_PID` - pidproxy's PID.
+- `PIDPROXY_CHILD_EXIT_CODE` - Monitored child exit code, if exited normally (-1 if terminated).
+- `PIDPROXY_CHILD_KILL_SIGNAL` - Monitored child kill signal, if terminated (-1 if exited normally).
 
 ## Building
 

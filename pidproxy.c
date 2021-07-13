@@ -50,13 +50,18 @@
 #  define P_SIG_MAX 31 // XXX: not future proof
 #endif
 
+#ifndef PATH_MAX
+#  define PATH_MAX 4096
+#endif
+
 #define USAGE_TEXT \
 "-h\t\tShows this help text\n"\
 "-g\t\tWhether to kill whole process group (defaults to no)\n"\
 "-r <from=to>\tPass received signal `from` to child as `to`. Can be specified multiple times\n"\
 "-t\t\tWhether to allow running from tty as a root. Used to prevent exploits using TIOCSTI ioctl\n"\
 "-U <uid>\tWhat UID to run the child process as\n"\
-"-G <gid>\tWhat GID to run the child process as (default: main group of user specified by -U flag, otherwise current gid)\n"
+"-G <gid>\tWhat GID to run the child process as (default: main group of user specified by -U flag, otherwise current gid)\n"\
+"-E <path-to-program>\tAn external program to run after monitored process exits.\n"
 
 static int w_pidfd_open(pid_t pid, unsigned int flags) {
   return syscall(SYS_pidfd_open, pid, flags);
@@ -65,6 +70,8 @@ static int w_pidfd_open(pid_t pid, unsigned int flags) {
 static int w_pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags) {
   return syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
 }
+
+extern char **environ;
 
 static int add_pollable_fd(int efd, int fd) {
   if (fd == -1) {
@@ -192,7 +199,7 @@ static int print_help(const char *name, int code) {
 }
 
 int main(int argc, char **argv) {
-  int r, direct_child_fd = -1, target_pid_fd = -1;
+  int r, ret = 0, direct_child_fd = -1, target_pid_fd = -1;
   int kill_process_group = 0;
   int allow_tty = 0;
   pid_t target_pid = -1;
@@ -204,11 +211,13 @@ int main(int argc, char **argv) {
   size_t supplementary_group_n = 0;
   gid_t *supplementary_groups = NULL;
 
+  char *exit_hook = NULL;
+
   struct epoll_event events[MAX_EVENTS];
   struct signalfd_siginfo last_siginfo;
 
   // Parse optional arguments
-  while ((r = getopt(argc, argv, "ghr:tU:G:")) != -1) {
+  while ((r = getopt(argc, argv, "ghr:tU:G:E:")) != -1) {
     switch (r) {
     case 'g':
       kill_process_group = 1;
@@ -249,6 +258,10 @@ int main(int argc, char **argv) {
 
       break;
     }
+    case 'E':
+      exit_hook = strndup(optarg, PATH_MAX-1);
+
+      break;
     default:
       return 1;
     }
@@ -298,6 +311,7 @@ int main(int argc, char **argv) {
 
   // Set up signal mask and signalfd
   sigset_t mask;
+  sigset_t old_mask;
   sigemptyset(&mask);
   sigaddset(&mask, SIGHUP);
   sigaddset(&mask, SIGINT);
@@ -306,7 +320,7 @@ int main(int argc, char **argv) {
   sigaddset(&mask, SIGUSR1);
   sigaddset(&mask, SIGUSR2);
 
-  if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
+  if (sigprocmask(SIG_BLOCK, &mask, &old_mask) == -1) {
     perror("sigprocmask");
     return 1;
   }
@@ -427,13 +441,14 @@ int main(int argc, char **argv) {
 
           if ((timer_cycles - direct_child_exited_at) > PIDFILE_MAX_WAIT_TIME) {
             fprintf(stderr, "target process did not appear after waiting for %d seconds\n", PIDFILE_MAX_WAIT_TIME);
-            return 1;
+            ret = 1;
+            goto exit;
           }
 
           // Try reading pidfile
           if (watch_target_process(epollfd, pidfile_name, &target_pid, &target_pid_fd) == -2) {
             fprintf(stderr, "process has died, quitting\n");
-            return 0;
+            goto exit;
           }
         }
 
@@ -443,7 +458,7 @@ int main(int argc, char **argv) {
             if (kill(target_pid, 0) == -1) {
               if (errno == ESRCH) {
                 fprintf(stderr, "process has died, quitting\n");
-                return 0;
+                goto exit;
               }
               perror("kill");
             }
@@ -473,7 +488,7 @@ int main(int argc, char **argv) {
         if (target_pid == -1) {
           if (watch_target_process(epollfd, pidfile_name, &target_pid, &target_pid_fd) == -2) {
             fprintf(stderr, "process has died, quitting\n");
-            return 0;
+            goto exit;
           }
         }
 
@@ -485,7 +500,8 @@ int main(int argc, char **argv) {
 
           if (exit_signals_caught > 2) {
             fprintf(stderr, "got exit signal 3 times while child was not present, exiting\n");
-            return 1;
+            ret = 1;
+            goto exit;
           }
         } else {
           // TODO: remember to keep eye on `pidfd_send_signal` changes, since it does not support killing a process group.
@@ -493,7 +509,7 @@ int main(int argc, char **argv) {
           if ((method_used ? kill(kill_process_group ? -target_pid : target_pid, sig) : w_pidfd_send_signal(target_pid_fd, sig, NULL, 0)) == -1) {
             if (errno == ESRCH) {
               fprintf(stderr, "process has died, quitting\n");
-              return 0;
+              goto exit;
             }
             perror(method_used ? "kill" : "pidfd_send_signal");
           }
@@ -506,10 +522,84 @@ int main(int argc, char **argv) {
         target_pid = -1;
         target_pid_fd = -1;
 
-        return 0;
+        goto exit;
       }
     }
   }
 
-  return 0;
+exit:
+  // Restore old signal mask
+  if (sigprocmask(SIG_BLOCK, &old_mask, NULL) == -1) {
+    perror("sigprocmask");
+    // XXX: would be silly to fail fatally here... just hope for the best
+  }
+
+  signal(SIGCHLD, SIG_DFL);
+
+  // Run exit hook, if set
+  if (exit_hook != NULL) {
+    fprintf(stderr, "running exit hook '%s'\n", exit_hook);
+
+    char *const eh_argv[] = {
+      exit_hook,
+      NULL
+    };
+
+    // Populate envvars
+    size_t env_count = 0;
+    for (char **e = environ; *e; e++) {
+      env_count++;
+    }
+
+    size_t eh_envp_idx = 0;
+    char **eh_envp = malloc((env_count + 4) * sizeof(char *));
+    for (char **e = environ; *e; e++) {
+      eh_envp[eh_envp_idx++] = strdup(*e);
+    }
+
+    char pidfile_abs_path[PATH_MAX];
+    int has_realpath = 0;
+    if (!(has_realpath = !!realpath(pidfile_name, pidfile_abs_path))) { // XXX: gross
+      perror("realpath");
+    }
+
+#define add_env(sz, fmt, ...) snprintf((eh_envp[eh_envp_idx++] = malloc((sizeof((fmt)) + (sz)))), (sizeof((fmt)) + (sz)) - 1, (fmt), __VA_ARGS__)
+    add_env(PATH_MAX, "PIDPROXY_PID_FILE=%s", has_realpath ? pidfile_abs_path : pidfile_name);
+    add_env(11, "PIDPROXY_EXIT_CODE=%d", ret);
+    add_env(11, "PIDPROXY_PID=%d", getpid());
+    add_env(11, "PIDPROXY_CHILD_EXIT_CODE=%d", 0); // TODO: need to actually find a way to get the child exit status
+    add_env(11, "PIDPROXY_CHILD_KILL_SIGNAL=%d", 0); // TODO: ^
+#undef add_env
+
+    pid_t eh_child = fork();
+    if (eh_child == -1) {
+      perror("fork");
+    } else if (eh_child == 0) {
+      // Execute the hook
+      if (execve(eh_argv[0], eh_argv, (char *const *) eh_envp) < 0) {
+        perror("execve");
+        _exit(1);
+      }
+    } else {
+      // Wait for the child to exit
+      int status = 0;
+      do { r = waitpid(eh_child, &status, WEXITED); } while (should_try_again(r));
+      if (r < 0) {
+        perror("waitpid");
+      } else if (WIFEXITED(status)) {
+        fprintf(stderr, "exit hook exited (code=%d)\n", WEXITSTATUS(status));
+      } else if (WIFSIGNALED(status)) {
+        fprintf(stderr, "exit hook killed (signal=%d)\n", WTERMSIG(status));
+      }
+    }
+
+    // Free envvars
+    for (char **e = eh_envp; *e; e++) {
+      free(*e);
+    }
+
+    free(exit_hook);
+  }
+
+  return ret;
 }
