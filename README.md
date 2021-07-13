@@ -67,9 +67,9 @@ If upgrading or rebuilding systemd is not possible, then you are probably better
 
 ## Notes
 
-1) Monitoring processes using [pidfd\_open(2)][pidfd-open-2] is not available in Docker containers before Docker engine version 20.10. Docker's default seccomp profile did not allow pidfd syscalls then.
-Polling will be used instead then, causing possible PID race and makes pidfd exit bit later than monitored process.
-2) Using `-g` flag to send a signal to the process group makes pidproxy use [kill(2)][kill-2] instead of [pidfd\_send\_signal(2)][pidfd-send-signal-2], which has possible PID race.
+1) Monitoring processes using [pidfd\_open(2)][pidfd-open-2] is not available in Docker containers before Docker engine version 20.10, because older default seccomp profile does not allow pidfd syscalls.
+pidproxy will fall back to polling the PID, but that has possible PID race on busier containers, and makes pidproxy exit bit later than monitored process.
+2) Using `-g` flag to send a signal to the process group makes pidproxy use [kill(2)][kill-2] instead of [pidfd\_send\_signal(2)][pidfd-send-signal-2], which has possible PID race (on busier containers).
 
 ## License
 
