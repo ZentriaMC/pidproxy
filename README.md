@@ -16,7 +16,7 @@ Inspired from [supervisor][supervisor] project's [pidproxy script][supervisor-pi
 USAGE: pidproxy [options] <path to pid file> <argv>
 ```
 
-pidfd supports following optional arguments:
+pidproxy supports following optional arguments:
 - `-g` - Whether to send signal to a process group or not.
 - `-r from:to` - Rewrite a signal. Can be specified multiple times to rewrite multiple signals. Example: `-r 15:1`
 - `-U uid/username` - Run target program as user. Can be either uid or username. Example: `-U game`
