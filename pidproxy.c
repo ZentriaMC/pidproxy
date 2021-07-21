@@ -516,7 +516,7 @@ int main(int argc, char **argv) {
         }
       } else if (fd == target_pid_fd) {
         // *** Target process
-        fprintf(stderr, "monitored pid %d exited, quitting\n", target_pid);
+        fprintf(stderr, "monitored pid %d exited%s\n", target_pid, exit_hook == NULL ? ", quitting" : "");
 
         close(target_pid_fd);
         target_pid = -1;
@@ -552,7 +552,8 @@ exit:
     }
 
     size_t eh_envp_idx = 0;
-    char **eh_envp = malloc((env_count + 4) * sizeof(char *));
+    // Allocate env array of existing env vars count + 5 additional + 1 slot for NULL
+    char **eh_envp = malloc((env_count + 6) * sizeof(char *));
     for (char **e = environ; *e; e++) {
       eh_envp[eh_envp_idx++] = strdup(*e);
     }
@@ -570,6 +571,7 @@ exit:
     add_env(11, "PIDPROXY_CHILD_EXIT_CODE=%d", 0); // TODO: need to actually find a way to get the child exit status
     add_env(11, "PIDPROXY_CHILD_KILL_SIGNAL=%d", -1); // TODO: ^
 #undef add_env
+    eh_envp[eh_envp_idx++] = NULL;
 
     pid_t eh_child = fork();
     if (eh_child == -1) {
@@ -582,8 +584,9 @@ exit:
       }
     } else {
       // Wait for the child to exit
+      fprintf(stderr, "launched exit hook\n");
       int status = 0;
-      do { r = waitpid(eh_child, &status, WEXITED); } while (should_try_again(r));
+      do { r = waitpid(eh_child, &status, 0); } while (should_try_again(r));
       if (r < 0) {
         perror("waitpid");
       } else if (WIFEXITED(status)) {
@@ -599,6 +602,7 @@ exit:
     }
 
     free(exit_hook);
+    fprintf(stderr, "quitting\n");
   }
 
   return ret;
