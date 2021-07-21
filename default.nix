@@ -32,4 +32,11 @@ stdenv.mkDerivation {
   '';
 
   doCheck = true;
+
+  meta = with lib; {
+    homepage = "https://github.com/ZentriaMC/pidproxy";
+    description = "Lightweight signal forwarder for daemonizing programs";
+    license = licenses.gpl3;
+    platforms = platforms.linux;
+  };
 }
