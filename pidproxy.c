@@ -568,8 +568,8 @@ exit:
     add_env(PATH_MAX, "PIDPROXY_PID_FILE=%s", has_realpath ? pidfile_abs_path : pidfile_name);
     add_env(11, "PIDPROXY_EXIT_CODE=%d", ret);
     add_env(11, "PIDPROXY_PID=%d", getpid());
-    add_env(11, "PIDPROXY_CHILD_EXIT_CODE=%d", 0); // TODO: need to actually find a way to get the child exit status
-    add_env(11, "PIDPROXY_CHILD_KILL_SIGNAL=%d", -1); // TODO: ^
+    //add_env(11, "PIDPROXY_CHILD_EXIT_CODE=%d", 0); // TODO: need to actually find a way to get the child exit status
+    //add_env(11, "PIDPROXY_CHILD_KILL_SIGNAL=%d", -1); // TODO: ^
 #undef add_env
     eh_envp[eh_envp_idx++] = NULL;
 

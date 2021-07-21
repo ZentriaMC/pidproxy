@@ -39,8 +39,10 @@ Following environment variables will be exposed to the external program:
 - `PIDPROXY_PID_FILE` - PID file initially supplied to the pidproxy.
 - `PIDPROXY_EXIT_CODE` - pidproxy's own exit code.
 - `PIDPROXY_PID` - pidproxy's PID.
+<!--
 - `PIDPROXY_CHILD_EXIT_CODE` - Monitored child exit code, if exited normally (-1 if terminated).
 - `PIDPROXY_CHILD_KILL_SIGNAL` - Monitored child kill signal, if terminated (-1 if exited normally).
+-->
 
 ## Building
 
