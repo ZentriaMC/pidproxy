@@ -64,11 +64,11 @@
 "-E <path-to-program>\tAn external program to run after monitored process exits.\n"
 
 static int w_pidfd_open(pid_t pid, unsigned int flags) {
-  return syscall(SYS_pidfd_open, pid, flags);
+  return (int) syscall(SYS_pidfd_open, pid, flags);
 }
 
 static int w_pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags) {
-  return syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
+  return (int) syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
 }
 
 extern char **environ;
@@ -338,7 +338,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  struct itimerspec timer_spec = { 0 };
+  struct itimerspec timer_spec = {};
   timer_spec.it_value.tv_sec = PIDFILE_INITIAL_WAIT_TIME;
   timer_spec.it_interval.tv_sec = 1;
 
@@ -427,7 +427,7 @@ int main(int argc, char **argv) {
       } else if (fd == timerfd) {
         // *** Timer
         uint64_t expires;
-        do { r = read(timerfd, &expires, sizeof(uint64_t)); } while (should_try_again(r));
+        do { r = (int) read(timerfd, &expires, sizeof(uint64_t)); } while (should_try_again(r));
         if (r == -1) {
           fprintf(stderr, "failed to read timerfd: %s\n", strerror(errno));
           continue;
@@ -476,7 +476,7 @@ int main(int argc, char **argv) {
           continue;
         }
 
-        int sig = last_siginfo.ssi_signo;
+        int sig = (int) last_siginfo.ssi_signo;
         if ((r = signal_rewrites[last_siginfo.ssi_signo]) != -1) {
           fprintf(stderr, "got signal %d (translating to %d)\n", sig, r);
           sig = r;
