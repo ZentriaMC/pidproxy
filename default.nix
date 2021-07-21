@@ -12,7 +12,9 @@ stdenv.mkDerivation {
   nativeBuildInputs = lib.optional enableStatic upx;
   buildInputs = [ (if enableStatic then musl else glibc) ];
 
-  patchPhase = lib.optionalString (!enableStatic) ''
+  patchPhase = ''
+    patchShebangs ./test
+  '' + lib.optionalString (!enableStatic) ''
     sed -i 's/-static //g' Makefile
   '';
 
@@ -29,5 +31,5 @@ stdenv.mkDerivation {
     cp ./pidproxy${lib.optionalString enableStatic ".upx"} $out/bin/pidproxy
   '';
 
-  doCheck = false; # no tests
+  doCheck = true;
 }

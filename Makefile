@@ -19,5 +19,9 @@ pidproxy.upx: pidproxy
 clean:
 	rm -rf *.o pidproxy pidproxy.upx
 
+check: pidproxy
+	./test/basic_monitor.sh ./pidproxy
+	./test/basic_monitor_exit_hook.sh ./pidproxy
+
 all: pidproxy pidproxy.upx
 .PHONY: clean
