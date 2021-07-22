@@ -1,5 +1,8 @@
-{ lib, stdenv
-, musl, glibc, upx
+{ lib
+, stdenv
+, musl
+, glibc
+, upx
 , enableStatic ? false
 , ...
 }:
