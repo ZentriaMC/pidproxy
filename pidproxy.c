@@ -68,7 +68,7 @@
 "-t\t\tWhether to allow running from tty as a root. Used to prevent exploits using TIOCSTI ioctl\n"\
 "-U <uid>\tWhat UID to run the child process as\n"\
 "-G <gid>\tWhat GID to run the child process as (default: main group of user specified by -U flag, otherwise current gid)\n"\
-"-E <path-to-program>\tAn external program to run after monitored process exits.\n"\
+"-E <path>\tAn external program to run after monitored process exits. Note that you cannot specify arguments at this time\n"\
 "-H\t\tWhether to send SIGHUP immediately after SIGTERM (honoring signal rewrites). Useful for shells/shell-like programs\n"
 
 #define should_try_again(r) ((r) == -1 && (errno) == EINTR)
