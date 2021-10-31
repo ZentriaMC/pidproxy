@@ -61,7 +61,8 @@
 "-t\t\tWhether to allow running from tty as a root. Used to prevent exploits using TIOCSTI ioctl\n"\
 "-U <uid>\tWhat UID to run the child process as\n"\
 "-G <gid>\tWhat GID to run the child process as (default: main group of user specified by -U flag, otherwise current gid)\n"\
-"-E <path-to-program>\tAn external program to run after monitored process exits.\n"
+"-E <path-to-program>\tAn external program to run after monitored process exits.\n"\
+"-H\t\tWhether to send SIGHUP immediately after SIGTERM (honoring signal rewrites). Useful for shells/shell-like programs\n"
 
 static int w_pidfd_open(pid_t pid, unsigned int flags) {
   return (int) syscall(SYS_pidfd_open, pid, flags);
@@ -169,6 +170,19 @@ static int watch_target_process(int epfd, const char *pidfile_name,
   return -1;
 }
 
+static int send_signal(pid_t pid, int pgroup, int pid_fd, int sig, int *method_used) {
+  int r;
+  // TODO: remember to keep eye on `pidfd_send_signal` changes, since it does not support killing a process group.
+  if (pgroup || !pidfd_working || pid_fd == -1) {
+    r = kill(pgroup ? -pid : pid, sig);
+    *method_used = 1;
+  } else {
+    r = w_pidfd_send_signal(pid_fd, sig, NULL, 0);
+    *method_used = 0;
+  }
+  return r;
+}
+
 static int signal_rewrites[P_SIG_MAX + 1] = {[0 ... P_SIG_MAX] = -1};
 
 static int parse_signal_rewrite(const char *arg) {
@@ -213,11 +227,13 @@ int main(int argc, char **argv) {
 
   char *exit_hook = NULL;
 
+  int do_sighup = 0;
+
   struct epoll_event events[MAX_EVENTS];
   struct signalfd_siginfo last_siginfo;
 
   // Parse optional arguments
-  while ((r = getopt(argc, argv, "ghr:tU:G:E:")) != -1) {
+  while ((r = getopt(argc, argv, "ghr:tU:G:E:H")) != -1) {
     switch (r) {
     case 'g':
       kill_process_group = 1;
@@ -260,6 +276,10 @@ int main(int argc, char **argv) {
     }
     case 'E':
       exit_hook = strndup(optarg, PATH_MAX-1);
+
+      break;
+    case 'H':
+      do_sighup = 1;
 
       break;
     default:
@@ -504,14 +524,25 @@ int main(int argc, char **argv) {
             goto exit;
           }
         } else {
-          // TODO: remember to keep eye on `pidfd_send_signal` changes, since it does not support killing a process group.
-          int method_used = kill_process_group || target_pid_fd == -1;
-          if ((method_used ? kill(kill_process_group ? -target_pid : target_pid, sig) : w_pidfd_send_signal(target_pid_fd, sig, NULL, 0)) == -1) {
+          int method_used = 0;
+          if ((r = send_signal(target_pid, kill_process_group, target_pid_fd, sig, &method_used)) == -1) {
             if (errno == ESRCH) {
               fprintf(stderr, "process has died, quitting\n");
               goto exit;
             }
             perror(method_used ? "kill" : "pidfd_send_signal");
+          }
+
+          // Send SIGHUP if requested
+          if (do_sighup && sig == SIGTERM) {
+            fprintf(stderr, "sending SIGHUP to %d\n", target_pid);
+            if ((r = send_signal(target_pid, kill_process_group, target_pid_fd, sig, &method_used)) == -1) {
+              if (errno == ESRCH) {
+                fprintf(stderr, "process has died, quitting\n");
+                goto exit;
+              }
+              perror(method_used ? "kill" : "pidfd_send_signal");
+            }
           }
         }
       } else if (fd == target_pid_fd) {

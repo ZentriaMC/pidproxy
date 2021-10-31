@@ -22,6 +22,8 @@ clean:
 check: pidproxy
 	./test/basic_monitor.sh ./pidproxy
 	./test/basic_monitor_exit_hook.sh ./pidproxy
+	./test/sighup.sh ./pidproxy
+	./test/sighup_sigint.sh ./pidproxy
 
 all: pidproxy pidproxy.upx
 .PHONY: clean
