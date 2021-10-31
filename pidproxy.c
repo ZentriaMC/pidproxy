@@ -444,11 +444,6 @@ int main(int argc, char **argv) {
 #endif
   }
 
-  // Clear argv
-  for (int i = child_argv_start; i < argc; i++) {
-    bzero(argv[i], strlen(argv[i]));
-  }
-
   // Start polling
   int evts;
   while (1) {
