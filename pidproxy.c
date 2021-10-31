@@ -228,7 +228,7 @@ static uint64_t direct_child_exited_at = 0;
 static unsigned int exit_signals_caught = 0;
 
 static int print_help(const char *name, int code) {
-  fprintf(stderr, "USAGE: %s [options] <path to pid file> <argv>\n", name);
+  fprintf(stderr, "USAGE: %s [options] [--] <path to pid file> <argv>\n", name);
   fprintf(stderr, "\n" USAGE_TEXT "\n");
   return code;
 }
