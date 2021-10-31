@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
   struct signalfd_siginfo last_siginfo;
 
   // Parse optional arguments
-  while ((r = getopt(argc, argv, "ghr:tU:G:E:H")) != -1) {
+  while ((r = getopt(argc, argv, "+ghr:tU:G:E:H")) != -1) {
     switch (r) {
     case 'g':
       kill_process_group = 1;
