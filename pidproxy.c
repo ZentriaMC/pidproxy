@@ -40,8 +40,15 @@
 #define PIDFILE_INITIAL_WAIT_TIME 2
 #define PIDFILE_MAX_WAIT_TIME 10
 
-#if !defined(SYS_pidfd_open) && defined(__x86_64__) // just to be sure.
-#  define SYS_pidfd_open 434
+#if !defined(SYS_pidfd_open) && !defined(WITHOUT_PIDFD)
+#  warning 'SYS_pidfd_open' is not defined, compiling implicitly without pidfd support
+#  define WITHOUT_PIDFD
+#endif
+
+#ifndef WITHOUT_PIDFD
+#  define PIDFD_SUPPORTED 1
+#else
+#  define PIDFD_SUPPORTED 0
 #endif
 
 #ifdef __SIGRTMIN
@@ -64,6 +71,14 @@
 "-E <path-to-program>\tAn external program to run after monitored process exits.\n"\
 "-H\t\tWhether to send SIGHUP immediately after SIGTERM (honoring signal rewrites). Useful for shells/shell-like programs\n"
 
+#define should_try_again(r) ((r) == -1 && (errno) == EINTR)
+
+extern char **environ;
+static int add_pollable_fd(int efd, int fd);
+
+#if PIDFD_SUPPORTED
+static int pidfd_working = PIDFD_SUPPORTED;
+
 static int w_pidfd_open(pid_t pid, unsigned int flags) {
   return (int) syscall(SYS_pidfd_open, pid, flags);
 }
@@ -71,32 +86,6 @@ static int w_pidfd_open(pid_t pid, unsigned int flags) {
 static int w_pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags) {
   return (int) syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
 }
-
-extern char **environ;
-
-static int add_pollable_fd(int efd, int fd) {
-  if (fd == -1) {
-    return -1;
-  }
-
-  struct epoll_event ev;
-  ev.events = EPOLLIN | EPOLLET;
-  ev.data.fd = fd;
-
-  if (epoll_ctl(efd, EPOLL_CTL_ADD, ev.data.fd, &ev) == -1) {
-    goto err;
-  }
-
-  return fd;
-
- err:
-  close(fd);
-  return -2;
-}
-
-#define should_try_again(r) ((r) == -1 && (errno) == EINTR)
-
-static int pidfd_working = 1;
 
 static int add_pollable_pid(int efd, pid_t pid) {
   if (!pidfd_working) {
@@ -119,6 +108,7 @@ static int add_pollable_pid(int efd, pid_t pid) {
 
   return add_pollable_fd(efd, pidfd);
 }
+#endif
 
 static int watch_target_process(int epfd, const char *pidfile_name,
                                 pid_t *target_pid_ptr, int *target_pid_fd_ptr) {
@@ -148,12 +138,13 @@ static int watch_target_process(int epfd, const char *pidfile_name,
   fclose(pid_file);
   *target_pid_ptr = target_pid;
 
+#if PIDFD_SUPPORTED
   if (!pidfd_working) {
     *target_pid_fd_ptr = -1;
     return 0;
   }
 
-  // Open pidfd. This is not fatal, however we won't know when target process exits.
+  // Open pidfd. This is not fatal, however we won't know when target process exits if opening pidfd fails.
   if ((r = add_pollable_pid(epfd, target_pid)) < 0) {
     if (errno == ESRCH) {
       // Process has exited
@@ -163,6 +154,10 @@ static int watch_target_process(int epfd, const char *pidfile_name,
   } else {
     *target_pid_fd_ptr = r;
   }
+#else
+  (void) epfd;
+  *target_pid_fd_ptr = -1;
+#endif
 
   return 0;
 
@@ -171,6 +166,7 @@ static int watch_target_process(int epfd, const char *pidfile_name,
 }
 
 static int send_signal(pid_t pid, int pgroup, int pid_fd, int sig, int *method_used) {
+#if PIDFD_SUPPORTED
   int r;
   // TODO: remember to keep eye on `pidfd_send_signal` changes, since it does not support killing a process group.
   if (pgroup || !pidfd_working || pid_fd == -1) {
@@ -181,6 +177,11 @@ static int send_signal(pid_t pid, int pgroup, int pid_fd, int sig, int *method_u
     *method_used = 0;
   }
   return r;
+#else
+  (void) pid_fd;
+  *method_used = 1;
+  return kill(pgroup ? -pid : pid, sig);
+#endif
 }
 
 static int signal_rewrites[P_SIG_MAX + 1] = {[0 ... P_SIG_MAX] = -1};
@@ -200,6 +201,26 @@ static int parse_signal_rewrite(const char *arg) {
   }
  end:
   return -1;
+}
+
+static int add_pollable_fd(int efd, int fd) {
+  if (fd == -1) {
+    return -1;
+  }
+
+  struct epoll_event ev;
+  ev.events = EPOLLIN | EPOLLET;
+  ev.data.fd = fd;
+
+  if (epoll_ctl(efd, EPOLL_CTL_ADD, ev.data.fd, &ev) == -1) {
+    goto err;
+  }
+
+  return fd;
+
+ err:
+  close(fd);
+  return -2;
 }
 
 static uint64_t timer_cycles = 0;
@@ -414,11 +435,13 @@ int main(int argc, char **argv) {
       free(supplementary_groups);
     }
 
+#if PIDFD_SUPPORTED
     if ((direct_child_fd = add_pollable_pid(epollfd, direct_child)) < 0) {
       if (errno != ESRCH) {
         fprintf(stderr, "failed to watch for direct child exit (%s error): %s\n", direct_child_fd == -1 ? "pidfd_open" : "epoll_ctl", strerror(errno));
       }
     }
+#endif
   }
 
   // Clear argv
