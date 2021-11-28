@@ -23,5 +23,10 @@
         packages.pidproxy = pkgs.callPackage ./. { };
         packages.pidproxy-static = pkgs.callPackage ./. { enableStatic = true; };
         defaultPackage = packages.pidproxy;
+
+        hydraJobs = {
+          build = packages.pidproxy;
+          build-static = packages.pidproxy-static;
+        };
       });
 }
