@@ -1,5 +1,6 @@
 { lib
 , stdenv
+, coreutils
 , musl
 , glibc
 , upx
@@ -14,6 +15,7 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = lib.optional enableStatic upx;
   buildInputs = [ (if enableStatic then musl else glibc) ];
+  checkInputs = [ coreutils ];
 
   patchPhase = ''
     patchShebangs ./test

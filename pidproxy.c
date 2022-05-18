@@ -238,7 +238,10 @@ int main(int argc, char **argv) {
   int kill_process_group = 0;
   int allow_tty = 0;
   pid_t target_pid = -1;
+  int switch_uid = 0, switch_gid = 0;
 
+  uid_t current_uid = getuid();
+  gid_t current_gid = getgid();
   char *target_uid_value = NULL;
   char *target_gid_value = NULL;
   uid_t target_uid = 0;
@@ -271,27 +274,19 @@ int main(int argc, char **argv) {
       allow_tty = 1;
       break;
     case 'U':
-      if (getuid() != 0) {
-        fprintf(stderr, "cannot setuid when current uid is not 0\n");
-        return 1;
-      }
-
       if (target_uid_value != NULL) {
         free(target_uid_value);
       }
       target_uid_value = strndup(optarg, 256-1);
+      switch_uid = 1;
 
       break;
     case 'G': {
-      if (getuid() != 0) {
-        fprintf(stderr, "cannot setgid when current uid is not 0\n");
-        return 1;
-      }
-
       if (target_gid_value != NULL) {
         free(target_gid_value);
       }
       target_gid_value = strndup(optarg, 256-1);
+      switch_gid = 1;
 
       break;
     }
@@ -312,17 +307,17 @@ int main(int argc, char **argv) {
     return print_help(argv[0], 1);
   }
 
-  if (getuid() == 0 && !allow_tty && isatty(STDIN_FILENO) == 1) {
+  if (current_uid == 0 && !allow_tty && isatty(STDIN_FILENO) == 1) {
     fprintf(stderr, "running in tty is not allowed as a root. use `-t` to bypass if you're sure what you are doing.\n");
     return 1;
   }
 
-  if (getuid() == 0 && target_gid_value != NULL && resolve_gid(target_gid_value, &target_gid) < 0) {
+  if (target_gid_value != NULL && resolve_gid(target_gid_value, &target_gid) < 0) {
     fprintf(stderr, "failed to resolve gid for '%s'\n", target_gid_value);
     return 1;
   }
 
-  if (getuid() == 0 && target_uid_value != NULL && resolve_uid_gid(target_uid_value, &target_uid, &target_gid, &supplementary_group_n, &supplementary_groups) < 0) {
+  if (target_uid_value != NULL && resolve_uid_gid(target_uid_value, &target_uid, &target_gid, &supplementary_group_n, &supplementary_groups) < 0) {
     fprintf(stderr, "failed to resolve uid for '%s'\n", target_uid_value);
     return 1;
   }
@@ -335,6 +330,11 @@ int main(int argc, char **argv) {
   if (target_gid_value != NULL) {
     free(target_gid_value);
     target_gid_value = NULL;
+  }
+
+  if ((switch_uid || switch_gid) && current_uid != 0 && (target_uid != current_uid || target_gid != current_gid)) {
+    fprintf(stderr, "cannot setuid/setgid when current uid is not 0\n");
+    return 1;
   }
 
   char *pidfile_name = argv[optind];
@@ -401,7 +401,7 @@ int main(int argc, char **argv) {
       // Unblock all signals for child
       sigprocmask(SIG_UNBLOCK, &all_signals, NULL);
 
-      if (target_gid != 0) {
+      if (switch_gid && current_gid != target_gid) {
         if (setgid(target_gid) < 0) {
           perror("setgid");
           _exit(1);
@@ -413,7 +413,7 @@ int main(int argc, char **argv) {
         }
       }
 
-      if (target_uid != 0) {
+      if (switch_uid && current_uid != target_uid) {
         if (setuid(target_uid) < 0) {
           perror("setuid");
           _exit(1);

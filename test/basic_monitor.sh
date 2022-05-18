@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -x
 
 # Most common use-case of pidproxy - monitor a pid
+
+uid="$(id -u)"
+gid="$(id -g)"
 
 pidproxy="${1:-../result/bin/pidproxy}"
 
@@ -35,7 +39,7 @@ echo "\${pid}" > "${pidfile}"
 echo "Launcher exiting; \$(date +%s)"
 EOF
 
-"${pidproxy}" -t -g -- "${pidfile}" "${launcher}"
+"${pidproxy}" -U "${uid}" -G "${gid}" -t -g -- "${pidfile}" "${launcher}"
 
 echo "removing test files"
 rm -rf "${testfiles}"
