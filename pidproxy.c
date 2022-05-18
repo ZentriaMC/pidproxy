@@ -318,12 +318,12 @@ int main(int argc, char **argv) {
   }
 
   if (getuid() == 0 && target_gid_value != NULL && resolve_gid(target_gid_value, &target_gid) < 0) {
-    fprintf(stderr, "failed to resolve gid for '%s'\n", optarg);
+    fprintf(stderr, "failed to resolve gid for '%s'\n", target_gid_value);
     return 1;
   }
 
   if (getuid() == 0 && target_uid_value != NULL && resolve_uid_gid(target_uid_value, &target_uid, &target_gid, &supplementary_group_n, &supplementary_groups) < 0) {
-    fprintf(stderr, "failed to resolve uid for '%s'\n", optarg);
+    fprintf(stderr, "failed to resolve uid for '%s'\n", target_uid_value);
     return 1;
   }
 
