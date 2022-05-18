@@ -57,6 +57,7 @@ int resolve_uid_gid(const char *name, uid_t *uid, gid_t *gid,
 
   if (is_number) {
     // Convert to integer first
+    errno = 0;
     uid_t provided_uid = strtoul(name, NULL, 10);
     if (errno != 0) {
       perror("strtoul");
@@ -144,6 +145,7 @@ int resolve_gid(const char *name, gid_t *gid) {
 
   if (is_number) {
     // Convert to integer first
+    errno = 0;
     uid_t provided_gid = strtoul(name, NULL, 10);
     if (errno != 0) {
       perror("strtoul");
