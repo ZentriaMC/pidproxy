@@ -46,9 +46,10 @@ Following environment variables will be exposed to the external program:
 
 ## Building
 
-Run `make` to get statically compiled binary. You'll get best results using [musl libc][musl-libc] (Using `musl-gcc` wrapper is sufficient)
+Run `make` to get statically compiled binary. You'll get best results using [musl libc][musl-libc] (Using `musl-gcc` wrapper or [zig cc][zig-cc] is sufficient)
 
-To use `musl-gcc`, do `CC=musl-gcc make`
+To use `musl-gcc`, do `CC=musl-gcc make`  
+To use `zig cc`, do `CC="zig cc -target x86_64-linux-musl"` (see available targets using `zig targets | jq '.libc'`)
 
 Makefile also provides `pidproxy.upx` target, which produces packed executable using [upx][upx] (packed executable is usually ~50% smaller than original).
 
@@ -100,3 +101,4 @@ GNU General Public License version 3
 [supervisor]: http://supervisord.org
 [systemd-dynamicuser]: https://www.freedesktop.org/software/systemd/man/systemd.exec.html#DynamicUser=
 [upx]: https://upx.github.io/
+[zig-cc]: https://andrewkelley.me/post/zig-cc-powerful-drop-in-replacement-gcc-clang.html
