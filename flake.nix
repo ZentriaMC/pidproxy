@@ -34,6 +34,7 @@
       rec {
         devShells.default = pkgs.mkShell {
           packages = [
+            # NOTE: addlicense -f etc/HEADER -c "Zentria OÜ" -y "2020-$(date +%Y)" *.c *.h
             pkgs.addlicense
           ];
         };
