@@ -13,15 +13,29 @@
         "x86_64-linux"
       ];
     in
-    flake-utils.lib.eachSystem supportedSystems (system:
+    flake-utils.lib.eachSystem supportedSystems
+      (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+          };
+        in
+        rec {
+          packages.pidproxy = pkgs.callPackage ./. { };
+          packages.pidproxy-static = packages.pidproxy.override { enableStatic = true; };
+          defaultPackage = packages.pidproxy;
+        })
+    // flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
           inherit system;
         };
       in
       rec {
-        packages.pidproxy = pkgs.callPackage ./. { };
-        packages.pidproxy-static = pkgs.callPackage ./. { enableStatic = true; };
-        defaultPackage = packages.pidproxy;
+        devShells.default = pkgs.mkShell {
+          packages = [
+            pkgs.addlicense
+          ];
+        };
       });
 }
