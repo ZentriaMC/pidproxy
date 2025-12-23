@@ -1,0 +1,127 @@
+name: "Build and Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (YYYY.M.D format, e.g., 2025.12.1)"
+        required: true
+        type: "string"
+  push:
+    tags:
+      - "20*.*.*"
+
+jobs:
+  build:
+    name: "Build"
+    strategy:
+      matrix:
+        target:
+          - os: "x86_64-linux"
+            labels: "ubuntu-latest"
+          - os: "aarch64-linux"
+            labels: "ubuntu-24.04-arm"
+    runs-on: "${{ matrix.target.labels }}"
+    steps:
+      - id: "checkout"
+        name: "Checkout repository"
+        uses: "actions/checkout@v4"
+
+      - id: "nix-installer"
+        name: "Install Nix"
+        uses: "DeterminateSystems/nix-installer-action@v21"
+
+      - id: "nix-cache"
+        name: "Set up Nix with flakes and nix-command"
+        uses: "DeterminateSystems/magic-nix-cache-action@v13"
+
+      - id: "build"
+        name: "Build static musl binary"
+        run: |
+          nix build .#packages.${{ matrix.target.os }}.pidproxy-static --out-link result
+
+      - id: "extract"
+        name: "Extract binary"
+        run: |
+          mkdir -p output
+          cp result/bin/pidproxy "output/pidproxy-${{ matrix.target.os }}-musl"
+          chmod +x "output/pidproxy-${{ matrix.target.os }}-musl"
+
+      - id: "upload-artifact"
+        name: "Upload artifact"
+        uses: "actions/upload-artifact@v4"
+        with:
+          name: "pidproxy-${{ matrix.target.os }}-musl"
+          path: "output/pidproxy-${{ matrix.target.os }}-musl"
+          retention-days: 1
+
+  publish:
+    name: "Publish"
+    needs: "build"
+    runs-on: "ubuntu-latest"
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+    permissions:
+      artifact-metadata: "write"
+      attestations: "write"
+      contents: "write"
+      id-token: "write"
+    steps:
+      - id: "checkout"
+        name: "Checkout repository"
+        uses: "actions/checkout@v4"
+
+      - id: "version"
+        name: "Determine version"
+        run: |
+          VERSION=""
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+
+          if [ -z "$VERSION" ]; then
+            echo >&2 "Version is required"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - id: "download-artifact"
+        name: "Download binaries from workspace"
+        uses: "actions/download-artifact@v4"
+        with:
+          pattern: "pidproxy-*-musl"
+          path: "artifacts"
+          merge-multiple: true
+
+      - id: "create-checksums"
+        name: "Create checksums"
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          (cd artifacts && sha256sum *) > release/SHA256SUMS
+          cp artifacts/* release/
+          cat release/SHA256SUMS
+
+      - id: "publish"
+        name: "Publish GitHub Release"
+        uses: "softprops/action-gh-release@v2"
+        with:
+          tag_name: "${{ steps.version.outputs.version }}"
+          name: "Release ${{ steps.version.outputs.version }}"
+          files: |
+            release/*
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      - id: "attest"
+        name: "Attest"
+        uses: "actions/attest-build-provenance@v3"
+        with:
+          subject-path: |
+            release/pidproxy-*
+            release/SHA256SUMS
