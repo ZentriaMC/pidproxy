@@ -460,8 +460,8 @@ int main(int argc, char **argv) {
       if (fd == direct_child_fd) {
         // *** Direct child exit
 
-        direct_child_fd = -1;
         close(direct_child_fd);
+        direct_child_fd = -1;
       } else if (fd == timerfd) {
         // *** Timer
         uint64_t expires;
