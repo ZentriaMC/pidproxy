@@ -491,7 +491,7 @@ int main(int argc, char **argv) {
         }
 
         if (target_pid != -1) {
-          if (direct_child_fd == -1) {
+          if (target_pid_fd == -1) {
             // Need to poll the PID
             if (kill(target_pid, 0) == -1) {
               if (errno == ESRCH) {
