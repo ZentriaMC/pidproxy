@@ -578,7 +578,7 @@ int main(int argc, char **argv) {
 
 exit:
   // Restore old signal mask
-  if (sigprocmask(SIG_BLOCK, &old_mask, NULL) == -1) {
+  if (sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1) {
     perror("sigprocmask");
     // XXX: would be silly to fail fatally here... just hope for the best
   }
