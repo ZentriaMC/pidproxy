@@ -421,7 +421,7 @@ int main(int argc, char **argv) {
 
         if (setuid(0) == 0 || seteuid(0) == 0) {
           fprintf(stderr, "could not drop root privileges\n");
-          return -1;
+          _exit(1);
         }
       }
 
