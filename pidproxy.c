@@ -554,7 +554,7 @@ int main(int argc, char **argv) {
           // Send SIGHUP if requested
           if (do_sighup && sig == SIGTERM) {
             fprintf(stderr, "sending SIGHUP to %d\n", target_pid);
-            if ((r = send_signal(target_pid, kill_process_group, target_pid_fd, sig, &method_used)) == -1) {
+            if ((r = send_signal(target_pid, kill_process_group, target_pid_fd, SIGHUP, &method_used)) == -1) {
               if (errno == ESRCH) {
                 fprintf(stderr, "process has died, quitting\n");
                 goto exit;
